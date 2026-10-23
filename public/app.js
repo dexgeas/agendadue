@@ -7,10 +7,12 @@
 // Application State
 const state = {
   currentDate: new Date(),
+  calendarViewDate: new Date(), // Active month displayed in full calendar
   tipoElenco: 'singolo', // 'singolo' (Andrea Selvatici) or 'globale' (Tutti)
   appointments: [],
   allGlobaleAppointments: [], // Cached for live counters
   monthEventDays: {},
+  monthCache: {}, // Cached event counts by "YYYY_M"
   activeFilter: 'all',
   searchQuery: '',
   isLoading: false,
@@ -35,6 +37,22 @@ const elements = {
   monthLabel: document.getElementById('current-month-label'),
   btnPrevMonth: document.getElementById('btn-prev-month'),
   btnNextMonth: document.getElementById('btn-next-month'),
+  btnOpenMonthModal: document.getElementById('btn-open-month-modal'),
+  btnTodayShortcut: document.getElementById('btn-today-shortcut'),
+  desktopCalWidget: document.getElementById('desktop-calendar-widget'),
+  desktopCalTitle: document.getElementById('desktop-cal-title'),
+  desktopCalGrid: document.getElementById('desktop-cal-grid'),
+  desktopCalPrevBtn: document.getElementById('desktop-cal-prev-btn'),
+  desktopCalNextBtn: document.getElementById('desktop-cal-next-btn'),
+  desktopCalTodayBtn: document.getElementById('desktop-cal-today-btn'),
+  monthModal: document.getElementById('month-modal'),
+  modalCalTitle: document.getElementById('modal-cal-title'),
+  modalCalGrid: document.getElementById('modal-cal-grid'),
+  modalCalPrevBtn: document.getElementById('modal-cal-prev-btn'),
+  modalCalNextBtn: document.getElementById('modal-cal-next-btn'),
+  modalCalTodayBtn: document.getElementById('modal-cal-today-btn'),
+  monthModalClose: document.getElementById('month-modal-close'),
+  navCalendar: document.getElementById('nav-calendar'),
   appointmentsList: document.getElementById('appointments-list'),
   searchInput: document.getElementById('search-input'),
   searchClearBtn: document.getElementById('search-clear-btn'),
@@ -58,6 +76,7 @@ const elements = {
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   renderDateStrip();
+  renderFullMonthCalendars();
   loadMonthCalendar();
   loadAppointments();
   registerServiceWorker();
@@ -73,12 +92,54 @@ function setupEventListeners() {
     elements.tabGlobale.addEventListener('click', () => switchViewMode('globale'));
   }
 
-  // Month navigation buttons
+  // Horizontal scroller month chevrons
   if (elements.btnPrevMonth) {
-    elements.btnPrevMonth.addEventListener('click', () => changeMonth(-1));
+    elements.btnPrevMonth.addEventListener('click', (e) => {
+      e.stopPropagation();
+      changeMonth(-1);
+    });
   }
   if (elements.btnNextMonth) {
-    elements.btnNextMonth.addEventListener('click', () => changeMonth(1));
+    elements.btnNextMonth.addEventListener('click', (e) => {
+      e.stopPropagation();
+      changeMonth(1);
+    });
+  }
+
+  // Full Month Calendar Triggers & Shortcuts
+  if (elements.btnOpenMonthModal) {
+    elements.btnOpenMonthModal.addEventListener('click', openMonthModal);
+  }
+  if (elements.monthModalClose) {
+    elements.monthModalClose.addEventListener('click', closeMonthModal);
+  }
+  if (elements.monthModal) {
+    elements.monthModal.addEventListener('click', (e) => {
+      if (e.target === elements.monthModal) closeMonthModal();
+    });
+  }
+  if (elements.btnTodayShortcut) {
+    elements.btnTodayShortcut.addEventListener('click', jumpToToday);
+  }
+  if (elements.desktopCalTodayBtn) {
+    elements.desktopCalTodayBtn.addEventListener('click', jumpToToday);
+  }
+  if (elements.modalCalTodayBtn) {
+    elements.modalCalTodayBtn.addEventListener('click', jumpToToday);
+  }
+
+  // Full Month Calendar Navigation (< >)
+  if (elements.desktopCalPrevBtn) {
+    elements.desktopCalPrevBtn.addEventListener('click', () => changeCalendarViewMonth(-1));
+  }
+  if (elements.desktopCalNextBtn) {
+    elements.desktopCalNextBtn.addEventListener('click', () => changeCalendarViewMonth(1));
+  }
+  if (elements.modalCalPrevBtn) {
+    elements.modalCalPrevBtn.addEventListener('click', () => changeCalendarViewMonth(-1));
+  }
+  if (elements.modalCalNextBtn) {
+    elements.modalCalNextBtn.addEventListener('click', () => changeCalendarViewMonth(1));
   }
 
   // Search input & clear button
@@ -120,7 +181,7 @@ function setupEventListeners() {
     elements.btnSync.addEventListener('click', () => {
       showToast('Sincronizzazione in corso...', '🔄');
       loadAppointments(true);
-      loadMonthCalendar();
+      loadMonthCalendar(state.calendarViewDate, true);
     });
   }
 
@@ -147,12 +208,10 @@ function setupEventListeners() {
   const navBtnSettings = document.getElementById('nav-settings');
 
   if (navBtnToday) {
-    navBtnToday.addEventListener('click', () => {
-      state.currentDate = new Date();
-      renderDateStrip();
-      loadAppointments();
-      showToast('Oggi selezionato', '📅');
-    });
+    navBtnToday.addEventListener('click', jumpToToday);
+  }
+  if (elements.navCalendar) {
+    elements.navCalendar.addEventListener('click', openMonthModal);
   }
   if (navBtnToggle) {
     navBtnToggle.addEventListener('click', () => {
@@ -164,7 +223,7 @@ function setupEventListeners() {
     navBtnSync.addEventListener('click', () => {
       showToast('Sincronizzazione in corso...', '🔄');
       loadAppointments(true);
-      loadMonthCalendar();
+      loadMonthCalendar(state.calendarViewDate, true);
     });
   }
   if (navBtnSettings) {
@@ -172,14 +231,60 @@ function setupEventListeners() {
   }
 }
 
-// Change month handler
+// Select a specific Date (centralized handler)
+function selectDate(date) {
+  const prevMonth = state.currentDate.getMonth();
+  const prevYear = state.currentDate.getFullYear();
+  state.currentDate = new Date(date);
+  state.calendarViewDate = new Date(date);
+
+  renderDateStrip();
+  renderFullMonthCalendars();
+
+  if (state.currentDate.getMonth() !== prevMonth || state.currentDate.getFullYear() !== prevYear) {
+    loadMonthCalendar(state.currentDate);
+  }
+
+  loadAppointments();
+}
+
+// Jump back to Today
+function jumpToToday() {
+  selectDate(new Date());
+  closeMonthModal();
+  showToast('Oggi selezionato', '📅');
+}
+
+// Change scroller month
 function changeMonth(delta) {
   const newDate = new Date(state.currentDate);
   newDate.setMonth(newDate.getMonth() + delta);
-  state.currentDate = newDate;
-  renderDateStrip();
-  loadMonthCalendar();
-  loadAppointments();
+  selectDate(newDate);
+}
+
+// Change Full Calendar view month
+function changeCalendarViewMonth(delta) {
+  const newDate = new Date(state.calendarViewDate);
+  newDate.setMonth(newDate.getMonth() + delta);
+  state.calendarViewDate = newDate;
+  renderFullMonthCalendars();
+  loadMonthCalendar(state.calendarViewDate);
+}
+
+// Open / Close Full Month Calendar Modal (Mobile)
+function openMonthModal() {
+  state.calendarViewDate = new Date(state.currentDate);
+  loadMonthCalendar(state.calendarViewDate);
+  renderFullMonthCalendars();
+  if (elements.monthModal) {
+    elements.monthModal.classList.add('open');
+  }
+}
+
+function closeMonthModal() {
+  if (elements.monthModal) {
+    elements.monthModal.classList.remove('open');
+  }
 }
 
 // Switch between 'singolo' and 'globale'
@@ -203,6 +308,8 @@ function switchViewMode(mode) {
   }
 
   showToast(`Vista: ${mode === 'singolo' ? 'I Miei Interventi' : 'Tutti i Tecnici'}`, '👥');
+  renderFullMonthCalendars();
+  renderDateStrip();
   loadAppointments();
 }
 
@@ -219,7 +326,7 @@ function renderDateStrip() {
     elements.monthLabel.textContent = `${MONTHS_IT[currentMonth]} ${currentYear}`;
   }
 
-  // 21 days window around selected date
+  // 21 days window centered around selected date
   const startDate = new Date(state.currentDate);
   startDate.setDate(startDate.getDate() - 7);
 
@@ -233,7 +340,8 @@ function renderDateStrip() {
     const isToday = d.toDateString() === realToday.toDateString();
     
     // Check if month matches for event dots
-    const dayInfo = d.getMonth() === currentMonth ? state.monthEventDays[dayNum.toString()] : null;
+    const isSameMonth = d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    const dayInfo = isSameMonth ? state.monthEventDays[dayNum.toString()] : null;
     const eventCount = dayInfo ? (state.tipoElenco === 'singolo' ? dayInfo.count : dayInfo.total) : 0;
 
     const chip = document.createElement('div');
@@ -251,9 +359,7 @@ function renderDateStrip() {
     `;
 
     chip.addEventListener('click', () => {
-      state.currentDate = new Date(d);
-      renderDateStrip();
-      loadAppointments();
+      selectDate(d);
     });
 
     elements.scrollerDates.appendChild(chip);
@@ -266,15 +372,119 @@ function renderDateStrip() {
   }
 }
 
-// Load Month Calendar (for day indicator dots)
-async function loadMonthCalendar() {
-  const month = state.currentDate.getMonth() + 1;
-  const year = state.currentDate.getFullYear();
+// Render Full Month Interactive Calendars (Desktop & Mobile Modal)
+function renderFullMonthCalendars() {
+  const viewYear = state.calendarViewDate.getFullYear();
+  const viewMonth = state.calendarViewDate.getMonth();
+  const titleText = `${MONTHS_IT[viewMonth]} ${viewYear}`;
+
+  if (elements.desktopCalTitle) elements.desktopCalTitle.textContent = titleText;
+  if (elements.modalCalTitle) elements.modalCalTitle.textContent = titleText;
+
+  const realToday = new Date();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate();
+  // Monday-first offset (0 = Lunedi, ..., 6 = Domenica)
+  const firstDayDow = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
+
+  let html = '';
+
+  // Trailing days from previous month
+  for (let i = firstDayDow - 1; i >= 0; i--) {
+    const d = daysInPrevMonth - i;
+    const prevDate = new Date(viewYear, viewMonth - 1, d);
+    html += `<div class="cal-day-cell other-month" data-iso="${prevDate.toISOString()}">${d}</div>`;
+  }
+
+  // Days of current view month
+  for (let d = 1; d <= daysInMonth; d++) {
+    const isToday = (
+      viewYear === realToday.getFullYear() &&
+      viewMonth === realToday.getMonth() &&
+      d === realToday.getDate()
+    );
+    const isSelected = (
+      viewYear === state.currentDate.getFullYear() &&
+      viewMonth === state.currentDate.getMonth() &&
+      d === state.currentDate.getDate()
+    );
+
+    // Get event count from state.monthEventDays if matching current view month
+    const isViewingCurrentDataMonth = (
+      state.monthDataMonth === (viewMonth + 1) &&
+      state.monthDataYear === viewYear
+    );
+    const dayInfo = isViewingCurrentDataMonth && state.monthEventDays ? state.monthEventDays[d.toString()] : null;
+    const count = dayInfo ? (state.tipoElenco === 'singolo' ? dayInfo.count : dayInfo.total) : 0;
+
+    let badgeHtml = '';
+    if (count > 0) {
+      badgeHtml = `<span class="cal-cell-badge">${count}</span>`;
+    }
+
+    const thisDate = new Date(viewYear, viewMonth, d);
+    html += `
+      <div class="cal-day-cell ${isToday ? 'is-today' : ''} ${isSelected ? 'is-selected' : ''}" data-iso="${thisDate.toISOString()}" data-day="${d}">
+        <span class="cal-day-number">${d}</span>
+        ${badgeHtml}
+      </div>
+    `;
+  }
+
+  // Leading days from next month to complete the row
+  const remainder = (firstDayDow + daysInMonth) % 7;
+  const nextDays = remainder === 0 ? 0 : 7 - remainder;
+  for (let d = 1; d <= nextDays; d++) {
+    const nextDate = new Date(viewYear, viewMonth + 1, d);
+    html += `<div class="cal-day-cell other-month" data-iso="${nextDate.toISOString()}">${d}</div>`;
+  }
+
+  const grids = [elements.desktopCalGrid, elements.modalCalGrid];
+  grids.forEach(grid => {
+    if (!grid) return;
+    grid.innerHTML = html;
+
+    // Attach click listeners to all cells
+    const cells = grid.querySelectorAll('.cal-day-cell');
+    cells.forEach(cell => {
+      cell.addEventListener('click', () => {
+        const iso = cell.getAttribute('data-iso');
+        if (iso) {
+          const clickedDate = new Date(iso);
+          selectDate(clickedDate);
+          closeMonthModal();
+        }
+      });
+    });
+  });
+}
+
+// Load Month Calendar (for day indicator dots with memory caching)
+async function loadMonthCalendar(targetDate = state.calendarViewDate || state.currentDate, forceRefresh = false) {
+  const month = targetDate.getMonth() + 1;
+  const year = targetDate.getFullYear();
+  const cacheKey = `${year}_${month}`;
+
+  if (!forceRefresh && state.monthCache && state.monthCache[cacheKey]) {
+    state.monthEventDays = state.monthCache[cacheKey];
+    state.monthDataMonth = month;
+    state.monthDataYear = year;
+    renderFullMonthCalendars();
+    renderDateStrip();
+    return;
+  }
+
   try {
     const res = await fetch(`/api/calendar/month?month=${month}&year=${year}`);
     const data = await res.json();
     if (data.success && data.days) {
+      if (!state.monthCache) state.monthCache = {};
+      state.monthCache[cacheKey] = data.days;
+      
       state.monthEventDays = data.days;
+      state.monthDataMonth = month;
+      state.monthDataYear = year;
+      renderFullMonthCalendars();
       renderDateStrip();
     }
   } catch (err) {
