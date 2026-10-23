@@ -16,9 +16,9 @@ const state = {
   credentials: {
     username: localStorage.getItem('agenda2_user') || 'andrea',
     password: localStorage.getItem('agenda2_pwd') || 'DESKitali@2021',
-    gotoClientId: localStorage.getItem('agenda2_goto_cid') || '',
-    gotoClientSecret: localStorage.getItem('agenda2_goto_csec') || '',
-    gotoRefreshToken: localStorage.getItem('agenda2_goto_rtok') || ''
+    gotoClientId: localStorage.getItem('agenda2_goto_cid') || '4bc8f4e9-075e-48a7-8ab4-52ea3c5f2d35',
+    gotoClientSecret: localStorage.getItem('agenda2_goto_csec') || 'FyFRXaREW1ZyswbsGnFT2ocE',
+    gotoRefreshToken: localStorage.getItem('agenda2_goto_rtok') || 'eyJraWQiOiI2MjAiLCJhbGciOiJSUzUxMiJ9.eyJzYyI6ImNvbGxhYjogaWRlbnRpdHk6c2NpbS5tZSIsInN1YiI6IjM5OTYzMDE5MTI5NDE3ODk5MTAiLCJhdWQiOiI0YmM4ZjRlOS0wNzVlLTQ4YTctOGFiNC01MmVhM2M1ZjJkMzUiLCJvZ24iOiJwd2QiLCJ0eXAiOiJyIiwibGV2ZWxPZkFzc3VyYW5jZSI6MiwiZXhwIjoxNzk1MzYxODgyLCJpYXQiOjE3OTI3Njk4ODIsImp0aSI6ImRjMDhmOGQwLTZkYjAtNDUyMC1iNTk2LThmOWIxNjdlNzEyNCJ9.o8xVOZB6WGIyS9hlASH3iJJle23s3nzNGcp3NQ17lqBk2O0HqUnWG8Mhy9IdxUpc8EjrKaS7tmFdgeopyIgX5aeNKzY5PcwXEGBgPLHIUuQnYToNIryD5QJbDKdfshtHvjtyTFP_yGdlqK9zzWd0y2Ld1-XtMb8P_E9UMCv0LE2lfaqVmkqBURvrfkOMpGSGY6mtfsL6he5gH-px-KSwmVkjhyQBLkekAJ1MpJGYpHezsH1AwXJfo5b9YiXUCE50JdFz27dfp9HdiXWtCcrsj7JBiKs9ecRUdXQ5MqQbgqs-B5pLufWGgELbP0-DpIWCQeuQjRYTtDzysWqeb5O__A'
   },
   gotoLinks: JSON.parse(localStorage.getItem('agenda2_goto_links') || '{}')
 };
