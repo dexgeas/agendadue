@@ -1,6 +1,7 @@
 /**
  * agenda2.0 - Core Application Logic
  * Mobile-first reactive SPA with Desk Italia integration & GoTo Meeting generator
+ * Apple Glassmorphism & Material 3 Refinements
  */
 
 // Application State
@@ -8,6 +9,7 @@ const state = {
   currentDate: new Date(),
   tipoElenco: 'singolo', // 'singolo' (Andrea Selvatici) or 'globale' (Tutti)
   appointments: [],
+  allGlobaleAppointments: [], // Cached for live counters
   monthEventDays: {},
   activeFilter: 'all',
   searchQuery: '',
@@ -31,13 +33,18 @@ const MONTHS_IT = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
 const elements = {
   scrollerDates: document.getElementById('date-scroller'),
   monthLabel: document.getElementById('current-month-label'),
+  btnPrevMonth: document.getElementById('btn-prev-month'),
+  btnNextMonth: document.getElementById('btn-next-month'),
   appointmentsList: document.getElementById('appointments-list'),
   searchInput: document.getElementById('search-input'),
+  searchClearBtn: document.getElementById('search-clear-btn'),
   statsTotal: document.getElementById('stat-total'),
   statsWebinars: document.getElementById('stat-webinars'),
   statsContracts: document.getElementById('stat-contracts'),
   tabSingolo: document.getElementById('tab-singolo'),
   tabGlobale: document.getElementById('tab-globale'),
+  countSingolo: document.getElementById('count-singolo'),
+  countGlobale: document.getElementById('count-globale'),
   btnSync: document.getElementById('btn-sync'),
   btnSettings: document.getElementById('btn-settings'),
   settingsModal: document.getElementById('settings-modal'),
@@ -66,10 +73,34 @@ function setupEventListeners() {
     elements.tabGlobale.addEventListener('click', () => switchViewMode('globale'));
   }
 
-  // Search input
+  // Month navigation buttons
+  if (elements.btnPrevMonth) {
+    elements.btnPrevMonth.addEventListener('click', () => changeMonth(-1));
+  }
+  if (elements.btnNextMonth) {
+    elements.btnNextMonth.addEventListener('click', () => changeMonth(1));
+  }
+
+  // Search input & clear button
   if (elements.searchInput) {
     elements.searchInput.addEventListener('input', (e) => {
       state.searchQuery = e.target.value.toLowerCase().trim();
+      if (elements.searchClearBtn) {
+        if (state.searchQuery.length > 0) {
+          elements.searchClearBtn.classList.add('visible');
+        } else {
+          elements.searchClearBtn.classList.remove('visible');
+        }
+      }
+      renderAppointments();
+    });
+  }
+
+  if (elements.searchClearBtn) {
+    elements.searchClearBtn.addEventListener('click', () => {
+      elements.searchInput.value = '';
+      state.searchQuery = '';
+      elements.searchClearBtn.classList.remove('visible');
       renderAppointments();
     });
   }
@@ -133,11 +164,22 @@ function setupEventListeners() {
     navBtnSync.addEventListener('click', () => {
       showToast('Sincronizzazione in corso...', '🔄');
       loadAppointments(true);
+      loadMonthCalendar();
     });
   }
   if (navBtnSettings) {
     navBtnSettings.addEventListener('click', openSettingsModal);
   }
+}
+
+// Change month handler
+function changeMonth(delta) {
+  const newDate = new Date(state.currentDate);
+  newDate.setMonth(newDate.getMonth() + delta);
+  state.currentDate = newDate;
+  renderDateStrip();
+  loadMonthCalendar();
+  loadAppointments();
 }
 
 // Switch between 'singolo' and 'globale'
@@ -164,20 +206,20 @@ function switchViewMode(mode) {
   loadAppointments();
 }
 
-// Render Date Strip Scroller (14 days before & after)
+// Render Date Strip Scroller (Horizontal Carousel)
 function renderDateStrip() {
   if (!elements.scrollerDates) return;
   elements.scrollerDates.innerHTML = '';
 
   const currentYear = state.currentDate.getFullYear();
   const currentMonth = state.currentDate.getMonth();
-  const currentDay = state.currentDate.getDate();
+  const realToday = new Date();
 
   if (elements.monthLabel) {
     elements.monthLabel.textContent = `${MONTHS_IT[currentMonth]} ${currentYear}`;
   }
 
-  // Generate 21 days window around selected date
+  // 21 days window around selected date
   const startDate = new Date(state.currentDate);
   startDate.setDate(startDate.getDate() - 7);
 
@@ -188,14 +230,24 @@ function renderDateStrip() {
     const dayNum = d.getDate();
     const dayName = DAYS_IT[d.getDay()];
     const isSelected = d.toDateString() === state.currentDate.toDateString();
-    const hasEvents = state.monthEventDays[dayNum.toString()] !== undefined;
+    const isToday = d.toDateString() === realToday.toDateString();
+    
+    // Check if month matches for event dots
+    const dayInfo = d.getMonth() === currentMonth ? state.monthEventDays[dayNum.toString()] : null;
+    const eventCount = dayInfo ? (state.tipoElenco === 'singolo' ? dayInfo.count : dayInfo.total) : 0;
 
     const chip = document.createElement('div');
-    chip.className = `date-chip ${isSelected ? 'active' : ''}`;
+    chip.className = `date-chip ${isSelected ? 'active' : ''} ${isToday ? 'is-today' : ''}`;
+    
+    let counterHtml = '';
+    if (eventCount > 0) {
+      counterHtml = `<span class="chip-dot-counter">${eventCount} app.</span>`;
+    }
+
     chip.innerHTML = `
       <span class="day-name">${dayName}</span>
       <span class="day-num">${dayNum}</span>
-      ${hasEvents ? '<span class="event-dot"></span>' : ''}
+      ${counterHtml}
     `;
 
     chip.addEventListener('click', () => {
@@ -206,7 +258,6 @@ function renderDateStrip() {
 
     elements.scrollerDates.appendChild(chip);
 
-    // Scroll active chip into view
     if (isSelected) {
       setTimeout(() => {
         chip.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
@@ -257,12 +308,21 @@ async function loadAppointments(forceSync = false) {
 
     if (data.success) {
       state.appointments = data.appointments || [];
+      
+      // Update Tab Counter
+      if (state.tipoElenco === 'singolo') {
+        if (elements.countSingolo) elements.countSingolo.textContent = state.appointments.length;
+      } else {
+        if (elements.countGlobale) elements.countGlobale.textContent = state.appointments.length;
+      }
+
       // Merge stored GoTo Links into appointments
       state.appointments.forEach(app => {
         if (!app.gotoLink && state.gotoLinks[app.id]) {
           app.gotoLink = state.gotoLinks[app.id].joinUrl;
         }
       });
+
       // Save cache
       localStorage.setItem(cacheKey, JSON.stringify(state.appointments));
       renderAppointments();
@@ -274,7 +334,7 @@ async function loadAppointments(forceSync = false) {
   } catch (err) {
     console.error('Fetch error:', err);
     if (state.appointments.length === 0) {
-      renderEmptyState('Impossibile contattare il server. Verifica la connessione.');
+      renderEmptyState('Impossibile contattare il portale. Verifica la connessione o tocca Aggiorna.');
     }
   } finally {
     showLoadingShimmer(false);
@@ -316,7 +376,7 @@ function renderAppointments() {
   updateStats(filtered);
 
   if (filtered.length === 0) {
-    renderEmptyState(state.searchQuery ? 'Nessun appuntamento corrisponde alla ricerca.' : 'Nessun intervento in programma per questa data.');
+    renderEmptyState(state.searchQuery ? 'Nessun appuntamento corrisponde alla ricerca inserita.' : 'Nessun intervento programmato per questo giorno.');
     return;
   }
 
@@ -338,14 +398,28 @@ function updateStats(items) {
   if (elements.statsContracts) elements.statsContracts.textContent = contracts;
 }
 
+// Extract Clean School Initials for Avatar
+function getSchoolMonogram(name) {
+  if (!name) return 'DS';
+  const clean = name.replace(/^(POLO|ISTITUTO|LICEALE|COMPRENSIVO|STATALE|I\.C\.|I\.S\.|I\.S\.I\.S\.|LICEO)\s+/i, '').trim();
+  const words = clean.split(/\s+/).filter(w => w.length > 1);
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase();
+  } else if (words.length === 1) {
+    return words[0].substring(0, 2).toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
+}
+
 // Create an Appointment Card Element
 function createAppointmentCard(app) {
   const card = document.createElement('div');
-  card.className = 'appointment-card';
+  card.className = `appointment-card ${app.isWebinar || app.gotoLink ? 'has-webinar' : ''}`;
   card.id = `card-app-${app.id}`;
 
   const hasGoto = Boolean(app.gotoLink);
   const mapUrl = `https://maps.apple.com/?q=${encodeURIComponent(app.address || (app.schoolName + ' ' + (app.city || '')))}`;
+  const monogram = getSchoolMonogram(app.schoolName);
 
   card.innerHTML = `
     <!-- Card Top Header -->
@@ -358,13 +432,20 @@ function createAppointmentCard(app) {
       <div class="badges-right">
         ${app.isWebinar ? '<span class="pill-badge webinar-tag">📹 WEBINAR</span>' : ''}
         <span class="pill-badge ${(app.nature || 'tec').toLowerCase() === 'tec' ? 'tecnico' : 'commerciale'}">
-          ${app.natureLabel || 'Tecnico'}
+          ${(app.nature || 'tec').toLowerCase() === 'tec' ? '🔧 Tecnico' : '💼 Commerciale'}
         </span>
       </div>
     </div>
 
-    <!-- School Title -->
-    <h2 class="school-title">${escapeHtml(app.schoolName || 'Intervento')}</h2>
+    <!-- School Header with Monogram Avatar -->
+    <div class="school-header-block">
+      <div class="school-avatar-monogram ${app.isWebinar ? 'webinar-avatar' : ''}">
+        ${app.isWebinar ? '📹' : monogram}
+      </div>
+      <div class="school-title-text">
+        <h2 class="school-title">${escapeHtml(app.schoolName || 'Intervento')}</h2>
+      </div>
+    </div>
 
     <!-- School Metadata & Badges -->
     <div class="school-meta-row">
@@ -375,7 +456,7 @@ function createAppointmentCard(app) {
       ` : ''}
 
       <span class="contract-badge ${app.hasContract ? 'si' : 'no'}">
-        ${app.hasContract ? '● Assistenza SI' : '○ Assistenza NO'}
+        ${app.hasContract ? '🛡️ Assistenza SI' : '⚠️ Assistenza NO'}
       </span>
 
       ${state.tipoElenco === 'globale' && app.technician ? `
@@ -388,18 +469,16 @@ function createAppointmentCard(app) {
     <!-- Address with Map Link -->
     ${app.address ? `
       <a href="${mapUrl}" target="_blank" rel="noopener" class="address-link-row" title="Apri su Mappe">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color:var(--primary); flex-shrink:0;">
           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
           <circle cx="12" cy="10" r="3"></circle>
         </svg>
         <span>${escapeHtml(app.address)}</span>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <polyline points="9 18 15 12 9 6"></polyline>
-        </svg>
+        <span class="map-action-pill">Mappe ↗</span>
       </a>
     ` : ''}
 
-    <!-- Notes / Details Box -->
+    <!-- Notes / Details Box with Styled Tags -->
     ${app.notes ? `
       <div class="notes-container">${highlightKeywords(escapeHtml(app.notes))}</div>
     ` : ''}
@@ -417,11 +496,12 @@ function createAppointmentCard(app) {
 function renderGotoGenerateButton(app) {
   return `
     <button class="btn-generate-goto" onclick="handleGenerateGoTo('${app.id}')">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
         <polygon points="23 7 16 12 23 17 23 7"></polygon>
         <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
       </svg>
       <span>Genera Stanza GoTo Meeting</span>
+      <span class="goto-verified-tag">Ufficiale</span>
     </button>
   `;
 }
@@ -429,17 +509,16 @@ function renderGotoGenerateButton(app) {
 // Render Active GoTo Meeting Details & Action Hub
 function renderGotoActivePanel(app) {
   const gotoLink = app.gotoLink;
+  const meetingId = app.gotoMeetingId || (gotoLink.split('/').pop() || '');
+
   return `
     <div class="goto-active-panel">
       <div class="goto-active-header">
         <div class="goto-badge-brand">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polygon points="23 7 16 12 23 17 23 7"></polygon>
-            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-          </svg>
+          <span class="live-dot"></span>
           <span>GoTo Meeting Attivo</span>
         </div>
-        <span class="badge-version" style="background:#ede9fe; color:#6d28d9;">PRONTO</span>
+        ${meetingId ? `<span class="meeting-id-chip">#${meetingId}</span>` : ''}
       </div>
 
       <!-- Link URL Bar with Copy Button -->
@@ -457,17 +536,17 @@ function renderGotoActivePanel(app) {
       <!-- Actions Grid -->
       <div class="goto-actions-grid">
         <a href="${gotoLink}" target="_blank" rel="noopener" class="goto-btn-action join">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <polygon points="5 3 19 12 5 21 5 3"></polygon>
           </svg>
           <span>Avvia Stanza</span>
         </a>
 
         <button class="goto-btn-action whatsapp" onclick="shareWhatsApp('${app.id}')">
-          <span>💬 WhatsApp</span>
+          <span>💬 Invia WhatsApp</span>
         </button>
 
-        <button class="goto-btn-action portal-sync" onclick="saveLinkToPortal('${app.id}')" title="Salva nelle note del portale aziendale">
+        <button class="goto-btn-action portal-sync" id="portal-btn-${app.id}" onclick="saveLinkToPortal('${app.id}')" title="Salva nelle note del portale aziendale">
           <span>💾 Salva su Portale</span>
         </button>
       </div>
@@ -483,8 +562,9 @@ async function handleGenerateGoTo(appointmentId) {
   const section = document.getElementById(`goto-section-${appointmentId}`);
   if (section) {
     section.innerHTML = `
-      <div style="text-align:center; padding:12px; color:var(--goto-purple); font-weight:700;">
-        ⏳ Generazione stanza GoTo in corso...
+      <div style="text-align:center; padding:16px; color:var(--goto-purple); font-weight:800; font-size:0.92rem; display:flex; align-items:center; justify-content:center; gap:8px;">
+        <span class="badge-pulse" style="background:var(--goto-purple);"></span>
+        <span>Creazione stanza GoTo OAuth 2.0 in corso...</span>
       </div>
     `;
   }
@@ -506,6 +586,7 @@ async function handleGenerateGoTo(appointmentId) {
     const data = await res.json();
     if (data.success && data.joinUrl) {
       app.gotoLink = data.joinUrl;
+      app.gotoMeetingId = data.meetingId;
       state.gotoLinks[appointmentId] = data;
       localStorage.setItem('agenda2_goto_links', JSON.stringify(state.gotoLinks));
 
@@ -513,7 +594,7 @@ async function handleGenerateGoTo(appointmentId) {
         section.innerHTML = renderGotoActivePanel(app);
       }
 
-      showToast(`Stanza creata: ${data.meetingId || ''}`, '📹');
+      showToast(`Stanza GoTo creata: #${data.meetingId || ''}`, '📹');
     } else {
       showToast('Errore durante la generazione GoTo', '❌');
       if (section) section.innerHTML = renderGotoGenerateButton(app);
@@ -549,7 +630,9 @@ async function saveLinkToPortal(appointmentId) {
   const app = state.appointments.find(a => a.id === appointmentId);
   if (!app || !app.gotoLink) return;
 
-  showToast('Salvataggio su portale Desk Italia...', '💾');
+  const btn = document.getElementById(`portal-btn-${appointmentId}`);
+  if (btn) btn.innerHTML = '<span>⏳ Salvataggio...</span>';
+
   try {
     const res = await fetch('/api/portal/save-link', {
       method: 'POST',
@@ -562,11 +645,14 @@ async function saveLinkToPortal(appointmentId) {
     const data = await res.json();
     if (data.success) {
       showToast('Link salvato con successo nel portale!', '✅');
+      if (btn) btn.innerHTML = '<span>✅ Salvato nel Portale</span>';
     } else {
       showToast(data.error || 'Errore salvataggio portale', '⚠️');
+      if (btn) btn.innerHTML = '<span>💾 Salva su Portale</span>';
     }
   } catch (err) {
     showToast('Errore di rete', '❌');
+    if (btn) btn.innerHTML = '<span>💾 Salva su Portale</span>';
   }
 }
 
@@ -625,15 +711,15 @@ function showToast(message, icon = 'ℹ️') {
   if (!elements.toastContainer) return;
   const toast = document.createElement('div');
   toast.className = 'glass-toast';
-  toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+  toast.innerHTML = `<span style="font-size:1.1rem;">${icon}</span><span>${message}</span>`;
   elements.toastContainer.appendChild(toast);
 
   setTimeout(() => {
     toast.style.opacity = '0';
-    toast.style.transform = 'translateY(-10px)';
-    toast.style.transition = 'all 0.3s ease';
+    toast.style.transform = 'translateY(-14px) scale(0.95)';
+    toast.style.transition = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
     setTimeout(() => toast.remove(), 300);
-  }, 2600);
+  }, 2800);
 }
 
 function showLoadingShimmer(show) {
@@ -652,18 +738,18 @@ function renderEmptyState(message) {
   elements.appointmentsList.innerHTML = `
     <div class="empty-state-box">
       <div class="empty-state-icon">☕</div>
-      <h3 style="font-weight:800; font-size:1.1rem; margin-bottom:6px;">Nessun Impegno</h3>
-      <p style="color:var(--text-muted); font-size:0.86rem;">${escapeHtml(message)}</p>
+      <h3 style="font-weight:900; font-size:1.15rem; margin-bottom:6px; letter-spacing:-0.3px;">Nessun Impegno</h3>
+      <p style="color:var(--text-muted); font-size:0.88rem; line-height:1.5;">${escapeHtml(message)}</p>
     </div>
   `;
 }
 
 function highlightKeywords(text) {
   return text
-    .replace(/(WEBINAR)/gi, '<b style="color:#7c3aed;">$1</b>')
-    .replace(/(TAGLIANDO)/gi, '<b style="color:#0284c7;">$1</b>')
-    .replace(/(CORSO)/gi, '<b style="color:#d97706;">$1</b>')
-    .replace(/(DM 219|DM 40|DM 66|PASSWEB)/gi, '<b style="color:#059669;">$1</b>');
+    .replace(/(WEBINAR)/gi, '<span class="notes-tag-pill webinar">📹 $1</span>')
+    .replace(/(TAGLIANDO)/gi, '<span class="notes-tag-pill tagliando">🔧 $1</span>')
+    .replace(/(CORSO)/gi, '<span class="notes-tag-pill corso">🎓 $1</span>')
+    .replace(/(DM 219|DM 40|DM 66|PASSWEB)/gi, '<span class="notes-tag-pill dm">📜 $1</span>');
 }
 
 function escapeHtml(str) {

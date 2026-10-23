@@ -44,7 +44,7 @@
         </div>
         <div class="brand-titles">
           <h1>agenda<span style="color:var(--primary);">2.0</span> <span class="badge-version">PRO</span></h1>
-          <div class="brand-subtitle" id="technician-label">Andrea Selvatici • Desk Italia</div>
+          <div class="brand-subtitle" id="technician-label"><span class="status-beacon"></span> Andrea Selvatici • Desk Italia</div>
         </div>
       </div>
 
@@ -74,8 +74,16 @@
         <!-- Date Strip Scroller (Carousel) -->
         <section class="date-strip-wrapper">
           <div class="date-strip-header">
-            <span class="current-month-display" id="current-month-label">Ottobre 2026</span>
-            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">Seleziona giorno</span>
+            <div class="current-month-display">
+              <button class="month-chevron-btn" id="btn-prev-month" title="Mese precedente">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="15 18 9 12 15 6"></polyline></svg>
+              </button>
+              <span id="current-month-label">Ottobre 2026</span>
+              <button class="month-chevron-btn" id="btn-next-month" title="Mese successivo">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </button>
+            </div>
+            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:700; letter-spacing:0.3px;">TOCCA UN GIORNO</span>
           </div>
           <div class="date-strip-scroller" id="date-scroller">
             <!-- Populated dynamically by app.js -->
@@ -85,17 +93,19 @@
         <!-- View Mode Bar (I Miei vs Tutti) -->
         <section class="view-mode-bar">
           <button class="mode-tab-btn active" id="tab-singolo">
-            <span>👤 I Miei Interventi</span>
+            <span>👤 I Miei</span>
+            <span class="tab-count-badge" id="count-singolo">0</span>
           </button>
           <button class="mode-tab-btn" id="tab-globale">
             <span>🌐 Tutti i Tecnici</span>
+            <span class="tab-count-badge" id="count-globale">0</span>
           </button>
         </section>
 
         <!-- Stats Counters Mini-Banner -->
         <section class="stats-banner">
           <div class="stat-card">
-            <div class="stat-icon" style="background:#eff6ff; color:#2563eb;">📅</div>
+            <div class="stat-icon" style="background:#eff6ff; color:#2563eb;">📌</div>
             <div>
               <div class="stat-val" id="stat-total">0</div>
               <div class="stat-label">Interventi</div>
@@ -132,6 +142,7 @@
               <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
             <input type="text" id="search-input" placeholder="Cerca per scuola, città, meccanografico, note..." autocomplete="off">
+            <button class="search-clear-btn" id="search-clear-btn" title="Cancella ricerca">✕</button>
           </div>
 
           <!-- Quick Filter Chips -->
