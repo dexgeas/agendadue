@@ -1,0 +1,18 @@
+{
+  "name": "agenda2.0 - Desk Italia & GoTo",
+  "short_name": "agenda2.0",
+  "description": "Agenda mobile-first per interventi Desk Italia e GoTo Meeting",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
